@@ -260,9 +260,10 @@ class Type(object):
     def valid_atom_datetime(self, x):
         if not isinstance(x, basestring):
             return False
-        if re.match('\d\d\d\d/\d\d/\d\d \d\d:\d\d:\d\d$', x):
-            return True
-        return False
+        m = re.match('(\d\d\d\d/\d\d/\d\d) (\d\d:\d\d:\d\d(\.[0-9]+)?)$', x)
+        if m is None:
+            return False
+        return self.valid_atom_date(m.group(1)) and self.valid_atom_time(m.group(2))
 
     def valid_atom_number(self, x):
         if isinstance(x, (int, long, float)):
@@ -270,7 +271,7 @@ class Type(object):
         try:
             y = float(x)
             return True
-        except ValueError:
+        except:
             return False
 
     def valid_cons_oneof(self, x, t):
