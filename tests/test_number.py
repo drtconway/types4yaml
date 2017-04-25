@@ -61,3 +61,4 @@ def test_invalid_1():
     val = ['foo', 'bar']
     t = make_type(doc)
     assert not t.valid(val)
+

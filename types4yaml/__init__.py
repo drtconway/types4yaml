@@ -121,20 +121,19 @@ with:
     type:
         union:
         - oneof: [any, string, date, time, datetime, number]
-        - dict:
-            d_u:
-                oneof:  {list: string}
-                string: string
-                list:   {named: type}
-                tuple:  {named: types}
-                dict:   {named: dictionary}
-                d_u:    {named: dictionary}
-                union:  {named: types}
-                with:
-                    tuple:
-                    - {named: dictionary}
-                    - {named: type}
-                named:  string
+        - d_u:
+            oneof:  {list: string}
+            regex:  string
+            list:   {named: type}
+            tuple:  {named: types}
+            dict:   {named: dictionary}
+            d_u:    {named: dictionary}
+            union:  {named: types}
+            with:
+                tuple:
+                - {named: dictionary}
+                - {named: type}
+            named:  string
 -   named: type
 ...
 
@@ -157,20 +156,19 @@ with:
     type:
         union:
         - oneof: [any, string, date, time, datetime, number]
-        - dict:
-            d_u:
-                oneof:  {list: string}
-                string: string
-                list:   {named: type}
-                tuple:  {named: types}
-                dict:   {named: dictionary}
-                union:  {named: types}
-                d_u:    {named: dictionary}
-                with:
-                    tuple:
-                    - {named: dictionary}
-                    - {named: type}
-                named:  string
+        - d_u:
+            oneof:  {list: string}
+            regex:  string
+            list:   {named: type}
+            tuple:  {named: types}
+            dict:   {named: dictionary}
+            union:  {named: types}
+            d_u:    {named: dictionary}
+            with:
+                tuple:
+                - {named: dictionary}
+                - {named: type}
+            named:  string
 -   named: type
 ...
 """
@@ -178,10 +176,6 @@ with:
 type_of_types = yaml.safe_load(StringIO.StringIO(type_definition_of_types))
 
 class BadType(Exception):
-    def __init__(self, arg):
-        self.args = arg
-
-class WrongType(Exception):
     def __init__(self, arg):
         self.args = arg
 
@@ -194,7 +188,7 @@ class Type(object):
         """
 
         if validate:
-            tot = Type(type_of_types, False)
+            tot = TypeType(type_of_types)
             if not tot.valid(_type):
                 raise BadType, _type
 
@@ -320,7 +314,6 @@ class Type(object):
                 opts[k[:-1]] = u
             else:
                 mand[k] = u
-        xks = set([])
         for (k,y) in x.items():
             if k in mand:
                 if not self.valid(y, mand[k]):
@@ -335,6 +328,9 @@ class Type(object):
                     return False
                 continue
             return False
+        if len(set(mand.keys()) - set(x.keys())) > 0:
+            return False
+
         return True
 
     def valid_cons_d_u(self, x, t):
@@ -367,6 +363,32 @@ class Type(object):
             if t in defs:
                 return self.valid(x, defs[t])
         raise BadType, t
+
+class TypeType(Type):
+    def __init__(self, _type):
+        super(TypeType, self).__init__(_type, False)
+
+    def valid_cons_d_u(self, x, t):
+        # Check the basic constraints are satisfied.
+        if not super(TypeType, self).valid_cons_d_u(x, t):
+            return False
+
+        (k, y) = x.items()[0]
+
+        if k == 'oneof':
+            # oneof types must have at least one alternative.
+            assert type(y) == type([])
+            return len(y) > 0
+
+        if k == 'regex':
+            # regex types must have a vailid regex.
+            try:
+                p = re.compile(y)
+                return True
+            except:
+                return False
+
+        return True
 
 def make_type(stream):
     """
