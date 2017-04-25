@@ -36,7 +36,7 @@ string
 date
     A string of the form ``YYYY/MM/DD``.
 
-datetime
+time
     A string of the form ``HH:mm:ss[.s+]``. Note that fractional seconds
     may be present, but if none are present, a trailing decimal point
     (``.``) should not be present.
@@ -142,6 +142,10 @@ with:
 
 __docformat__ = 'restructuredtext'
 
+import datetime
+import re
+import StringIO
+
 import yaml
 
 type_definition_of_types = \
@@ -171,6 +175,8 @@ with:
 ...
 """
 
+type_of_types = yaml.safe_load(StringIO.StringIO(type_definition_of_types))
+
 class BadType(Exception):
     def __init__(self, arg):
         self.args = arg
@@ -180,53 +186,85 @@ class WrongType(Exception):
         self.args = arg
 
 class Type(object):
-    def __init__(self, _type):
+    def __init__(self, _type, validate = True):
         """
         Create a new type object out of a native python object.
+        If validate is True, then the type object is validated
+        against the type schema for types.
         """
+
+        if validate:
+            tot = Type(type_of_types, False)
+            if not tot.valid(_type):
+                raise BadType, _type
+
         self._type = _type
         self.ctxt = []
 
     def valid(self, x, t = None):
+        """
+        Check a data object to see if it conforms to the type.
+        """
         if t is None:
             t = self._type
 
         if isinstance(t, basestring):
-            m = 'valid_' + t
-            return getattr(m, x, modify)
+            m = 'valid_atom_' + t
+            return getattr(self, m)(x)
 
         assert type(t) == type({}) and len(t) == 1
 
         (k, v) = t.items()[0]
-        m = 'valid_' + k
-        return getattr(m, x, v)
+        m = 'valid_cons_' + k
+        return getattr(self, m)(x, v)
 
-    def valid_string(self, x):
+    def valid_atom_string(self, x):
         if not isinstance(x, basestring):
             return False
         return True
 
-    def valid_date(self, x):
+    def valid_atom_date(self, x):
         if not isinstance(x, basestring):
             return False
-        if re.match('\d\d\d\d/\d\d/\d\d$', s):
+        m = re.match('(\d\d\d\d)/(\d\d)/(\d\d)$', x)
+        if m is None:
+            return False
+        try:
+            yy = int(m.group(1))
+            mm = int(m.group(2))
+            dd = int(m.group(3))
+            d = datetime.date(yy, mm, dd)
             return True
+        except:
+            return False
 
-    def valid_time(self, x):
+    def valid_atom_time(self, x):
         if not isinstance(x, basestring):
             return False
-        if re.match('\d\d:\d\d:\d\d$', s):
+        m = re.match('(\d\d):(\d\d):(\d\d)(\.[0-9]+)?$', x)
+        if m is None:
+            return False
+        hh = int(m.group(1))
+        mm = int(m.group(2))
+        ss = int(m.group(3))
+        if m.group(4) is not None:
+            ss = float(m.group(3) + m.group(4))
+        if hh < 0 or hh >= 24:
+            return False
+        if mm < 0 or mm >= 60:
+            return False
+        if ss < 0 or ss >= 60:
+            return False
+        return True
+
+    def valid_atom_datetime(self, x):
+        if not isinstance(x, basestring):
+            return False
+        if re.match('\d\d\d\d/\d\d/\d\d \d\d:\d\d:\d\d$', x):
             return True
         return False
 
-    def valid_datetime(self, x):
-        if not isinstance(x, basestring):
-            return False
-        if re.match('\d\d\d\d/\d\d/\d\d \d\d:\d\d:\d\d$', s):
-            return True
-        return False
-
-    def valid_number(self, x):
+    def valid_atom_number(self, x):
         if isinstance(x, (int, long, float)):
             return True
         try:
@@ -235,12 +273,12 @@ class Type(object):
         except ValueError:
             return False
 
-    def valid_oneof(self, x, t):
+    def valid_cons_oneof(self, x, t):
         if not isinstance(x, basestring):
             return False
         return x in t
 
-    def valid_string(self, x, t):
+    def valid_cons_regex(self, x, t):
         if not isinstance(x, basestring):
             return False
         try:
@@ -250,43 +288,71 @@ class Type(object):
         except:
             return False
 
-    def valid_list(self, x, t):
+    def valid_cons_list(self, x, t):
         if type(x) != type([]) and type(x) != type((1,2)):
             return False
         for i in xrange(len(x)):
-            if not self.valid(x[i], t)
+            if not self.valid(x[i], t):
                 return False
         return True
 
-    def valid_tuple(self, x, t):
+    def valid_cons_tuple(self, x, t):
         if type(x) != type([]) and type(x) != type((1,2)):
             return False
         if len(x) != len(t):
             return False
         for i in xrange(len(x)):
-            if not self.valid(x[i], t[i])
+            if not self.valid(x[i], t[i]):
                 return False
         return True
 
-    def valid_dict(self, x, t):
+    def valid_cons_dict(self, x, t):
         if type(x) != type({}):
             return False
-        # XXX
+        mand = {}
+        opts = {}
+        extra = None
+        for (k,u) in t.items():
+            if k == '*':
+                extra = u
+            elif k.endswith('?'):
+                opts[k[:-1]] = u
+            else:
+                mand[k] = u
+        xks = set([])
+        for (k,y) in x.items():
+            if k in mand:
+                if not self.valid(y, mand[k]):
+                    return False
+                continue
+            if k in opts:
+                if not self.valid(y, opts[k]):
+                    return False
+                continue
+            if extra is not None:
+                if not self.valid(y, extra):
+                    return False
+                continue
+            return False
         return True
 
-    def valid_d_u(self, x, t):
+    def valid_cons_d_u(self, x, t):
         if type(x) != type({}):
             return False
-        # XXX
-        return True
+        if len(x) != 1:
+            return False
+        (k, y) = x.items()[0]
+        if k not in t:
+            return False
+        return self.valid(y, t[k])
 
-    def valid_union(self, x, t):
+    def valid_cons_union(self, x, t):
         for u in t:
             if self.valid(x, u):
                 return True
         return False
 
-    def valid_with(self, x, t):
+    def valid_cons_with(self, x, t):
         assert len(t) == 2
         defs = t[0]
         u = t[1]
@@ -295,13 +361,17 @@ class Type(object):
         self.ctxt.pop()
         return r
 
-    def valid_named(self, x, t):
+    def valid_cons_named(self, x, t):
         for defs in self.ctxt:
             if t in defs:
                 return self.valid(x, defs[t])
-        return False
+        raise BadType, t
 
-def make_type():
+def make_type(stream):
     """
+    Construct a type schema object from a string or file object.
     """
-    return Type()
+    if isinstance(stream, basestring):
+        stream = StringIO.StringIO(stream)
+    t = yaml.load(stream)
+    return Type(t)
