@@ -369,6 +369,7 @@ class TypeType(Type):
         super(TypeType, self).__init__(_type, False)
 
     def valid_cons_d_u(self, x, t):
+
         # Check the basic constraints are satisfied.
         if not super(TypeType, self).valid_cons_d_u(x, t):
             return False
