@@ -212,6 +212,9 @@ class Type(object):
         m = 'valid_cons_' + k
         return getattr(self, m)(x, v)
 
+    def valid_atom_any(self, x):
+        return True
+
     def valid_atom_string(self, x):
         if not isinstance(x, basestring):
             return False
